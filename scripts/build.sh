@@ -16,7 +16,7 @@ if ! command -v brew &>/dev/null; then
   exit 1
 fi
 # Install required system packages
-brew install rust ffmpeg cmake python@${PYTHON_VERSION}
+brew install rust cmake python@${PYTHON_VERSION}
 
 # --- BUILD ENVIRONMENT SETUP ---
 # Set compiler and Python environment variables for macOS compilation
