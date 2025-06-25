@@ -8,7 +8,7 @@ This installation script provides an automated setup for running Kyutai's high-p
 - **Kyutai's STT model** (`kyutai/stt-1b-en_fr-candle`) with 1B parameters supporting English and French
 - **Rust-based server** with Metal acceleration optimized for Apple Silicon
 - **Streaming inference** for real-time transcription with word-level timestamps
-- **REST API** with `/api/asr-streaming` endpoint
+- **WebSocket API** with `/api/asr-streaming` endpoint
 - **Semantic Voice Activity Detection (VAD)** capabilities
 
 > **Note**: This is a deployment script based on the official [Kyutai Labs Delayed Streams Modeling](https://github.com/kyutai-labs/delayed-streams-modeling) project. For the complete research project, model details, and alternative installation methods, please visit the original repository.
@@ -42,7 +42,7 @@ git clone https://github.com/jeanjerome/moshi-stt-apple-installer.git
 ### 2. Run the Server
 ```bash
 cd moshi-stt-apple-silicon
-./scripts/build.sh
+./scripts/install.sh
 ```
 
 The build script will:
@@ -51,67 +51,145 @@ The build script will:
 3. Download the STT configuration for English/French (if not already present)
 4. Start the server on port 8080
 
-### 3. Verify Installation
+### 3. Verify Installation (optional)
+
+First, install `uv` (Python package manager, independent of Moshi server):
 ```bash
-# Check if server is running
-curl -I http://localhost:8080/api/asr-streaming
+curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
-You should see a `200 OK` response.
+Then test the Moshi server with the WebSocket client:
+```bash
+# Test Moshi server using WebSocket client
+uv run test_client.py
+```
+
+Expected output:
+```
+Installed 4 packages in 7ms
+received: {'type': 'Ready'}
+received: {'type': 'Word', 'text': 'Bonjour,', 'start_time': 1.68}
+received: {'type': 'Marker', 'id': 0}
+Received marker, stopping stream.
+exiting
+Transcription: Bonjour,
+```
 
 ## Usage
 
-### Basic Audio Transcription
+### Starting the Server
+
+Use the provided startup script (recommended):
 ```bash
-# Transcribe an audio file
-curl -X POST http://localhost:8080/api/asr-streaming \
-  -H "Authorization: Bearer open_token" \
-  -H "Content-Type: audio/wav" \
-  --data-binary @your_audio_file.wav
+./scripts/start.sh
 ```
 
-### Supported Audio Formats
-- **Formats**: WAV, MP3, FLAC, M4A (via FFmpeg)
-- **Sample Rate**: 16kHz recommended (auto-resampled)
-- **Channels**: Mono or Stereo
+This script initializes the required environment variables for macOS:
+- **Python runtime**: `PYTHON_SYS_EXECUTABLE`, `DYLD_LIBRARY_PATH`
+- **Library paths**: Required for PyO3 bindings and native dependencies
+- **Homebrew paths**: Ensures system libraries are found correctly
+
+Or start manually (requires setting environment variables):
+```bash
+~/.cargo/bin/moshi-server worker --config moshi-stt.toml --port 8080
+```
+
+### WebSocket Audio Transcription
+
+The Moshi server uses WebSocket for real-time audio streaming transcription:
+
+```
+ws://localhost:8080/api/asr-streaming
+Header: kyutai-api-key: open_token
+Protocol: MessagePack binary format
+```
+
+### Audio Format Requirements
+- **Format**: WAV, 16-bit PCM
+- **Sample Rate**: 24kHz (resampled automatically)
+- **Channels**: Mono
 - **Duration**: Up to 10 minutes recommended for optimal performance
-- **Real-time**: Streaming support for live audio
 
-### API Endpoint
-```
-POST /api/asr-streaming
-Authorization: Bearer open_token
-Content-Type: audio/*
+### Response Format
+
+The server sends MessagePack-encoded responses with these message types:
+
+```python
+# Connection ready
+{"type": "Ready"}
+
+# Processing step (can be ignored)
+{"type": "Step"}
+
+# Word detected with timestamp
+{"type": "Word", "text": "Bonjour,", "start_time": 1.68}
+
+# Word end timestamp
+{"type": "EndWord", "stop_time": 2.1}
+
+# Stream end marker
+{"type": "Marker", "id": 0}
 ```
 
-**Response**: JSON with transcribed text
+### Client Example
+
+Use the provided WebSocket client:
+```bash
+uv run test_client.py
+```
+
+Or implement your own using the same MessagePack protocol for sending audio chunks and receiving transcription events.
+
+For additional client implementations (Python, MLX), see [Kyutai's streaming client examples](https://github.com/kyutai-labs/delayed-streams-modeling/tree/main/scripts).
 
 ## Configuration
 
-The server uses `moshi-stt.toml` for configuration:
+### Command Line Options
+
+```bash
+~/.cargo/bin/moshi-server worker [OPTIONS] --config <CONFIG>
+```
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--config <CONFIG>` | Required | Path to TOML configuration file |
+| `--port <PORT>` | 8080 | Server port |
+| `--addr <ADDR>` | 0.0.0.0 | Server address |
+| `--log <LOG_LEVEL>` | info | Log level (error, warn, info, debug, trace) |
+| `--cpu` | - | Force CPU mode (disable Metal acceleration) |
+| `--silent` | - | Suppress output |
+
+### Configuration File (`moshi-stt.toml`)
 
 | Setting | Value | Description |
 |---------|-------|-------------|
-| **Port** | 8080 | Server port (customizable with `--port`) |
-| **Languages** | EN, FR | Supported languages |
+| **API Path** | `/api/asr-streaming` | WebSocket endpoint |
 | **Model** | `kyutai/stt-1b-en_fr-candle` | Bilingual STT model |
-| **Model Size** | 1B params | Streaming optimized |
-| **Delay** | 0.5s | Real-time processing delay |
+| **Languages** | EN, FR | Supported languages |
+| **Delay (tokens)** | 6 | ASR delay in tokens |
 | **Batch Size** | 64 | Processing batch size |
 | **Temperature** | 0.0 | Deterministic output |
-| **Features** | Timestamps, VAD | Word-level timing + voice detection |
+| **Auth Token** | `open_token` | WebSocket authentication |
 
-### Custom Port
+### Examples
+
 ```bash
+# Custom port
 ~/.cargo/bin/moshi-server worker --config moshi-stt.toml --port 8081
+
+# Debug logging
+~/.cargo/bin/moshi-server worker --config moshi-stt.toml --log debug
+
+# CPU-only mode
+~/.cargo/bin/moshi-server worker --config moshi-stt.toml --cpu
 ```
 
 ## Server Management
 
 ### Manual Start
 ```bash
-# If already compiled
-~/.cargo/bin/moshi-server worker --config moshi-stt.toml --port 8080
+# If already installed
+./scripts/start.sh
 ```
 
 ### Stop Server
@@ -120,23 +198,26 @@ The server uses `moshi-stt.toml` for configuration:
 pkill -f moshi-server
 ```
 
-### View Logs
+### Check Resource
 ```bash
-# Monitor server logs
-tail -f ~/tmp/tts-logs/*.log
-
 # Check resource usage
 top -pid $(pgrep moshi-server)
 ```
 
 ### Restart
 ```bash
-pkill -f moshi-server && ./scripts/build.sh
+pkill -f moshi-server && ./scripts/start.sh
 ```
 
 ## Troubleshooting
 
 ### Common Issues
+
+#### Normal WebSocket Closing Error
+```
+ERROR: WebSocket protocol error: Sending after closing is not allowed
+```
+This error is normal when the client closes the connection. The server continues processing briefly after the client disconnects.
 
 #### Port Already in Use
 ```bash
@@ -152,7 +233,7 @@ lsof -i :8080
 # Clean and rebuild
 cargo clean
 rustup update
-./scripts/build.sh
+./scripts/install.sh
 ```
 
 #### Python/PyTorch Issues
@@ -174,39 +255,26 @@ The models download automatically on first run. If this fails:
 | Metric | Expected Value |
 |--------|----------------|
 | **RAM Usage** | 4-8 GB |
-| **Processing Speed** | ~0.1x real-time |
+| **Processing Speed** | ~94ms per step |
 | **GPU Acceleration** | Metal (Apple Silicon) |
+| **Latency** | Real-time streaming with 6-token delay |
 
-**Example**: A 10-second audio file processes in ~1 second.
+**Tested on M4 Max**: Short audio clips process in a few seconds with word-level timestamps.
 
 ### Limitations
 
-- **Concurrent Requests**: 1 request at a time (default)
-- **Languages**: English and French only
-- **Platform**: macOS Apple Silicon only
-- **Audio Length**: 10 minutes maximum recommended
-
-## Technical Architecture
-
-```
-┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
-│   Audio Input   │───▶│   Moshi Server   │───▶│  Transcribed    │
-│  (WAV/MP3/etc)  │    │   (Rust/Candle)  │    │     Text        │
-└─────────────────┘    └──────────────────┘    └─────────────────┘
-                              │
-                              ▼
-                       ┌──────────────────┐
-                       │  Kyutai STT 1B   │
-                       │ (EN/FR Support)  │
-                       └──────────────────┘
-```
+- **Languages**: English and French only (per model tokenizer)
+- **Installation Script**: This installer is macOS Apple Silicon specific
+- **Model Size**: Requires ~2GB disk space and 4-8GB RAM
+- **Audio Length**: Optimal performance up to 10 minutes (model training limitations) 
 
 ### Technology Stack
+
 - **Backend**: Rust with Candle ML framework
 - **Model**: Kyutai STT 1B parameters transformer
 - **Acceleration**: Metal Performance Shaders
-- **Audio Processing**: FFmpeg
-- **API**: HTTP REST with streaming capability
+- **Protocol**: WebSocket with MessagePack binary format
+- **Audio Processing**: Real-time streaming with PCM float32
 
 ## Advanced Usage
 
