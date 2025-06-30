@@ -113,9 +113,9 @@ async def stream_audio(url: str, rtf: float, api_key: str, audio_file: str):
 
 if __name__ == "__main__":
     audio_file = "data/bonjour.wav"
-    api_key = "open_token"
+    api_key = "public_token"
     url = "ws://127.0.0.1:8080"
-    rtf = 1.01
+    rtf = 1000
     
     full_url = f"{url}/api/asr-streaming"
     asyncio.run(stream_audio(full_url, rtf, api_key, audio_file))

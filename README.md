@@ -100,7 +100,7 @@ The Moshi server uses WebSocket for real-time audio streaming transcription:
 
 ```
 ws://localhost:8080/api/asr-streaming
-Header: kyutai-api-key: open_token
+Header: kyutai-api-key: public_token
 Protocol: MessagePack binary format
 ```
 
@@ -169,7 +169,7 @@ For additional client implementations (Python, MLX), see [Kyutai's streaming cli
 | **Delay (tokens)** | 6 | ASR delay in tokens |
 | **Batch Size** | 64 | Processing batch size |
 | **Temperature** | 0.0 | Deterministic output |
-| **Auth Token** | `open_token` | WebSocket authentication |
+| **Auth Token** | `public_token` | WebSocket authentication |
 
 ### Examples
 
